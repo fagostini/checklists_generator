@@ -1,0 +1,30 @@
+
+## Data delivery
+
+### Generating reports
+
+- [ ] Log in into Miarka
+- [ ] Move to the project directory and submit the report job:
+```bash
+cd <ngi_path>/ANALYSIS/<project_id> && ngi_reports project_summary -p <project_id> -s '<author_name>'`
+```
+
+This step creates the `reports` directory
+
+Open the markdown file in the `reports` directory, and check the following:
+
+- [ ] All flowcells are listed
+- [ ] The read counts are correct
+- [ ] No deviation note should be added
+- [ ] The index sequences are correct
+- [ ] No new samples should be added
+
+If any of the above points are not correct, you can edit the markdown file directly, and then run the following command to re-generate the final report:
+```bash
+make_report [Project_name]_project_summary.md
+```
+
+### Standard DDS delivery
+
+
+---

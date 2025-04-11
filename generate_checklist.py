@@ -19,16 +19,16 @@ def parse_args():
         description="Generate a list of files in a directory."
     )
     parser.add_argument(
-        "--template",
+        "--templates-path",
         type=pathlib.Path,
         help="Path to the template file.",
-        default=pathlib.Path("QC_template.qmd"),
+        default=pathlib.Path("templates"),
     )
     parser.add_argument(
         "--format",
         type=str,
         help="Output format for the checklist.",
-        default="markdown",
+        default=None,
         choices=["markdown", "html"],
     )
     parser.add_argument(
@@ -56,12 +56,6 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
-        "--md-path",
-        type=pathlib.Path,
-        help="Path to the markdown destination directory.",
-        default=None,
-    )
-    parser.add_argument(
         "--ngi-path",
         type=pathlib.Path,
         help="Path to the NGI folder.",
@@ -83,17 +77,31 @@ def parse_args():
         "--quarto-path",
         type=pathlib.Path,
         help="Path to the Quarto executable.",
-        default=pathlib.Path("/usr/local/bin/quarto"),
+        default=None,
     )
     parser.add_argument(
-        "--output-dir",
+        "--output-path",
         type=pathlib.Path,
         help="Path to the output directory.",
-        default=pathlib.Path("."),
+        default=None,
+    )
+    parser.add_argument(
+        "--timestamp",
+        action="store_true",
+        default=False,
+        help="Add a timestamp to the output filename.",
+    )
+    parser.add_argument(
+        "--output-structure",
+        type=str,
+        help="Output structure for the checklist.",
+        default=None,
+        choices=["flat", "nested"],
     )
     parser.add_argument(
         "--force",
         action="store_true",
+        default=False,
         help="Force overwrite of existing files.",
     )
     parser.add_argument(
@@ -131,12 +139,13 @@ def set_run_parameters(args):
             config[key] = value
 
     # Set the output directory and file basename
-    prefix = datetime.now().strftime("%Y%m%d")
-    config["basename"] = (
-        f"{prefix}_{config['project']}_QC_checklist"
-        if config["project"]
-        else f"{prefix}_QC_checklist"
-    )
+    prefix = f"{datetime.now().strftime('%Y%m%d')}_" if args.timestamp else ""
+    prefix += f"{config['project']}_" if config["project"] else ""
+    config["basename"] = prefix[:-1] if prefix.endswith("_") else prefix
+    if config["basename"] != "" and config["output_structure"] == "nested":
+        config["output_path"] = config["output_path"].joinpath(config["basename"])
+        if not config["output_path"].is_dir():
+            config["output_path"].mkdir(parents=True, exist_ok=True)
 
     return config
 
@@ -160,13 +169,69 @@ def validate_flowcell_id(flowcell_id: str):
         )
 
 
-def prepare_markdown_header(config: dict):
+def validate_quarto_path(quarto_path: pathlib.Path):
+    """Validate the Quarto path."""
+    # Check if the Quarto executable exists and is accessible
+    status, quarto_version = subprocess.getstatusoutput(f"{quarto_path} --version")
+    if status != 0:
+        logging.error(
+            "Quarto not found in the specified path. Attempting to find it in the system path."
+        )
+        # Attempt to find Quarto in the system path
+        status, quarto_path = subprocess.getstatusoutput("which quarto")
+        if status != 0:
+            logging.error("Quarto not found in the system path.")
+            exit(1)
+        else:
+            status, quarto_version = subprocess.getstatusoutput(
+                f"{quarto_path} --version"
+            )
+    return pathlib.Path(quarto_path), quarto_version
+
+
+def validate_templates(template_path: pathlib.Path):
+    """Validate the template path."""
+    if not template_path.is_dir():
+        logging.error("The specified template path does not exist.")
+        exit(1)
+    required_templates = [
+        "QC_template.qmd",
+        "Delivery_template.qmd",
+        "Close_template.qmd",
+    ]
+    missing_templates = [
+        template
+        for template in required_templates
+        if not template_path.joinpath(template).is_file()
+    ]
+    if missing_templates:
+        logging.error(
+            f"The following required templates are missing: {', '.join(missing_templates)}"
+        )
+        exit(1)
+
+
+def prepare_markdown_header(config: dict, template: str):
     """Prepare the markdown header with project and author information."""
+    # Set the title and subtitle based on the template
+    if template == "qc":
+        title = "QC and Delivery"
+        subtitle = "Bioinformatic Sample QC and Preparation for Data Delivery"
+    elif template == "delivery":
+        title = "Delivery"
+        subtitle = "Bioinformatic Sample Delivery"
+    elif template == "close":
+        title = "Close"
+        subtitle = "Bioinformatic Sample Close"
+    else:
+        logging.error(f"Unknown template '{template}'. Cannot prepare markdown header.")
+        exit(1)
+    # Prepare the markdown header
     md_header = "---\n"
     md_header += (
-        f"title: {config['project']} QC and delivery\n"
+        f"title: {config['project']} {title}\n"
         if config["project"]
-        else "title: Bioinformatic QC and delivery\n"
+        else "title: Bioinformatic {title}\n"
     )
     md_header += (
         f"author: {config['author']} <{config['email']}>\n"
@@ -177,8 +242,8 @@ def prepare_markdown_header(config: dict):
     )
     md_header += "\n".join(
         [
-            "subtitle: 'Bioinformatic Sample QC and Preparation for Data Delivery'",
-            "description: 'Automatically generated QC checklist'",
+            f"subtitle: '{subtitle}'",
+            "description: 'Automatically generated checklist'",
             "date: today",
             "lang: en-GB",
             "format:",
@@ -199,32 +264,106 @@ def prepare_markdown_header(config: dict):
     return md_header
 
 
-def write_markdown_template(config: dict):
-    """Write the markdown template with project and author information."""
-    # Prepare the markdown header
-    header = prepare_markdown_header(config)
-    with open(f"{config['basename']}.qmd", "w") as output_file:
-        output_file.write(header)
-        # Write the template content
-        with open(config["template"], "r") as template_file:
-            for line in template_file:
-                if config["project"]:
-                    line = re.sub(r"<project_id>", f"{config['project']}", line)
-                if config["flowcell"]:
-                    line = re.sub(r"<flowcell_id>", f"{config['flowcell']}", line)
-                if config["author"]:
-                    line = re.sub(r"<author_name>", f"{config['author']}", line)
-                if config["ngi_path"]:
-                    line = re.sub(r"<ngi_path>", f"{config['ngi_path']}", line)
-                if config["genstat_url"]:
-                    line = re.sub(r"<genstat_url>", f"{config['genstat_url']}", line)
-                if config["charon_url"]:
-                    line = re.sub(r"<charon_url>", f"{config['charon_url']}", line)
+def parse_markdown_templates(config: dict) -> dict:
+    """Parse the markdown templates and replace placeholders with actual values."""
+
+    def parse_line(config, line):
+        """Parse a line of the template and replace placeholders with actual values."""
+        if config["project"]:
+            line = re.sub(r"<project_id>", f"{config['project']}", line)
+        if config["flowcell"]:
+            line = re.sub(r"<flowcell_id>", f"{config['flowcell']}", line)
+        if config["author"]:
+            line = re.sub(r"<author_name>", f"{config['author']}", line)
+        if config["ngi_path"]:
+            line = re.sub(r"<ngi_path>", f"{config['ngi_path']}", line)
+        if config["genstat_url"]:
+            line = re.sub(r"<genstat_url>", f"{config['genstat_url']}", line)
+        if config["charon_url"]:
+            line = re.sub(r"<charon_url>", f"{config['charon_url']}", line)
+        return line
+
+    def write_template(label: str):
+        """Write the template content to the output file."""
+        with open(f"{config['basename']}_{label}.qmd", "w") as output_file:
+            output_file.write(header)
+            # Write the template content
+            with open(
+                config["templates_path"].joinpath(f"{label}_template.qmd"), "r"
+            ) as template_file:
+                for line in template_file:
+                    output_file.write(parse_line(config, line))
+
+    # Prepare QC template
+    header = prepare_markdown_header(config, "qc")
+    write_template("QC")
+
+    # Prepare Delivery template
+    header = prepare_markdown_header(config, "delivery")
+    write_template("Delivery")
+
+    # Prepare Close template
+    header = prepare_markdown_header(config, "close")
+    write_template("Close")
+
+    return {
+        "QC": f"{config['basename']}_QC.qmd",
+        "Delivery": f"{config['basename']}_Delivery.qmd",
+        "Close": f"{config['basename']}_Close.qmd",
+    }
+
+
+def generate_markdown_output(config: dict, cmd: str, label: str):
+    """Generate the markdown output using Quarto."""
+    logging.debug("Generating markdown via Quarto...")
+    try:
+        _ = subprocess.run(cmd, shell=True, check=True, capture_output=True)
+        output_stream = []
+        with open(
+            config["output_path"].joinpath(f"{config['basename']}_{label}.md"), "r"
+        ) as input_file:
+            for line in input_file:
+                if line.startswith("<"):
+                    # Remove some HTML tags for aesthetic purposes
+                    line = re.sub(r"<div>", "", line).strip()
+                    line = re.sub(r"</div>", "", line).strip()
+                if line.startswith(">"):
+                    line = re.sub(r"> -", "-", line)
+                line = re.sub(r"☐", "[ ]", line)
+                output_stream.append(line)
+        with open(
+            config["output_path"].joinpath(f"{config['basename']}_{label}.md"), "w"
+        ) as output_file:
+            for line in output_stream:
                 output_file.write(line)
+        logging.debug("Markdown file generated successfully.")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Error generating markdown: {e}")
+        exit(1)
+
+
+def generate_html_output(config: dict, cmd: str):
+    """Generate the HTML output using Quarto."""
+    logging.debug("Generating HTML via Quarto...")
+    try:
+        _ = subprocess.run(cmd, shell=True, check=True, capture_output=True)
+        logging.debug("HTML file generated successfully.")
+    except subprocess.CalledProcessError as e:
+        logging.debug(f"Error generating HTML: {e}")
+        exit(1)
 
 
 def cleanup_temporary_data(config: dict):
     """Remove temporary files and directories created during the process."""
+    files_list = list(
+        pathlib.Path(__file__).resolve().parent.glob(f"{config['basename']}*.qmd")
+    )
+    # Move qmd files to the quarto directory
+    for qmd in files_list:
+        if qmd.is_file():
+            qmd.rename(config["qmds_path"].joinpath(qmd.name))
+
+    # Remove the md files
     files_list = list(pathlib.Path().glob(f"**/{config['basename']}*.md"))
     for tmp_md in files_list:
         if tmp_md.is_file():
@@ -254,63 +393,33 @@ if __name__ == "__main__":
     config = set_run_parameters(args)
 
     # Validate the project ID
-    if args.project:
-        validate_project_id(args.project)
+    if config["project"]:
+        validate_project_id(config["project"])
 
     # Validate the flowcell ID
-    if args.flowcell:
-        validate_flowcell_id(args.flowcell)
+    if config["flowcell"]:
+        validate_flowcell_id(config["flowcell"])
 
     # Check if the Quarto executable exists and is accessible
-    status, quarto_version = subprocess.getstatusoutput(
-        f"{config['quarto_path']} --version"
-    )
-    if status != 0:
-        logging.error(
-            "Quarto not found in the specified path. Attempting to find it in the system path."
-        )
-        # Attempt to find Quarto in the system path
-        status, quarto_path = subprocess.getstatusoutput("which quarto")
-        if status != 0:
-            logging.error("Quarto not found in the system path.")
-            exit(1)
-        else:
-            # Update the config with the correct Quarto path
-            config["quarto_path"] = pathlib.Path(quarto_path)
-            status, quarto_version = subprocess.getstatusoutput(
-                f"{quarto_path} --version"
-            )
+    config["quarto_path"], quarto_version = validate_quarto_path(config["quarto_path"])
+
     # Check if the template file exists
-    if not config["template"].is_file():
-        logging.error("The specified template file does not exist.")
-        exit(1)
-    # Check if the markdown output directory exists
-    if config["md_path"]:
-        if not config["md_path"].is_dir():
-            logging.error(
-                "The specified markdown output path does not exist. Skipping markdown generation."
-            )
-            exit(1)
+    validate_templates(config["templates_path"])
+
+    # Create the output directory if it doesn't exist
+    config["output_path"].mkdir(parents=True, exist_ok=True)
+
+    # Set the path for the Quarto markdown files, and create the directory if it doesn't exist
+    config["qmds_path"] = pathlib.Path(__file__).resolve().parent.joinpath("qmds")
+    config["qmds_path"].mkdir(parents=True, exist_ok=True)
 
     # Check if the output directory exists
     if not args.force:
-        files_list = []
-        if (
-            config["md_path"].joinpath(f"{config['basename']}.md").is_file()
-            and config["format"] == "markdown"
-        ):
-            files_list.append(config["md_path"].joinpath(f"{config['basename']}.md"))
-        if (
-            config["output_dir"].joinpath(f"{config['basename']}.html").is_file()
-            and config["format"] == "html"
-        ):
-            files_list.append(
-                config["output_dir"].joinpath(f"{config['basename']}.html")
-            )
-        if config["output_dir"].joinpath(f"{config['basename']}.qmd").is_file():
-            files_list.append(
-                config["output_dir"].joinpath(f"{config['basename']}.qmd")
-            )
+        files_list = [
+            x
+            for x in config["output_path"].glob(f"{config['basename']}*")
+            if x.is_file()
+        ]
         if files_list:
             logging.error(
                 "The following files already exist and will not be overwritten:"
@@ -327,70 +436,46 @@ if __name__ == "__main__":
     logging.debug("Run Parameters:")
     logging.debug(f"    Quarto Path: {config['quarto_path']}")
     logging.debug(f"    Quarto Version: {quarto_version}")
-    logging.debug(f"    Template: {config['template']}")
+    logging.debug(f"    Templates Path: {config['templates_path']}")
     logging.debug(f"    Project ID: {config['project']}")
     logging.debug(f"    Flowcell ID: {config['flowcell']}")
     logging.debug(f"    NGI Path: {config['ngi_path']}")
     logging.debug(f"    Author: {config['author']}")
     logging.debug(f"    Author Email: {config['email']}")
-    logging.debug(f"    Output Directory: {config['output_dir']}")
+    logging.debug(f"    Output Directory: {config['output_path']}")
     logging.debug(f"    Output Format: {config['format']}")
+    logging.debug(f"    Output Structure: {config['output_structure']}")
+    logging.debug(f"    Timestamp: {args.timestamp}")
     if config["format"] == "markdown":
-        logging.debug(f"    Markdown Output Path: {config['output_dir']}")
+        logging.debug(f"    Markdown Output Path: {config['output_path']}")
         logging.debug(f"    Markdown Filename: {config['basename']}.md")
     else:
-        logging.debug(f"    HTML Output Path: {config['output_dir']}")
+        logging.debug(f"    HTML Output Path: {config['output_path']}")
         logging.debug(f"    HTML Filename: {config['basename']}.html")
     logging.debug("-" * 40)
 
     # Write the markdown template, including the dynamic content
-    write_markdown_template(config)
+    templates_dict = parse_markdown_templates(config)
 
-    # Prepare the base command to run Quarto
-    cmd = f"{config['quarto_path']} render {config['basename']}.qmd"
-    cmd += f" --output-dir {config['output_dir']} --execute-dir {config['output_dir']}"
+    for key, template in templates_dict.items():
+        logging.debug(f"Generating {key} output using template: {template}")
+        # Prepare the base command to run Quarto
+        cmd = f"{config['quarto_path']} render {template}"
+        cmd += f" --output-dir {config['output_path']} --execute-dir {config['output_path']}"
+        if config["format"] == "markdown":
+            cmd += f" --to commonmark --output {config['basename']}_{key}.md"
+            # Generate the Markdown file and place it in the specified directory
+            generate_markdown_output(config, cmd, key)
 
-    if config["format"] == "markdown":
-        # Generate the Markdown file and place it in the specified directory
-        logging.debug("Generating QC checklist markdown via Quarto...")
-        cmd2 = cmd + f" --to commonmark --output {config['basename']}.md"
-        try:
-            out = subprocess.run(cmd2, shell=True, check=True, capture_output=True)
-            if config["md_path"]:
-                with open(
-                    config["md_path"].joinpath(f"{config['basename']}.md"), "w"
-                ) as output_file:
-                    with open(
-                        config["output_dir"].joinpath(f"{config['basename']}.md"), "r"
-                    ) as input_file:
-                        for line in input_file:
-                            if line.startswith("<"):
-                                # Remove some HTML tags for aesthetic purposes
-                                line = re.sub(r"<div>", "", line).strip()
-                                line = re.sub(r"</div>", "", line).strip()
-                            output_file.write(line)
-            logging.info("Markdown file generated successfully.")
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Error generating markdown: {e}")
+        elif config["format"] == "html":
+            cmd += f" --to html --output {config['basename']}_{key}.html --embed-resources --standalone --debug"
+            # Generate the HTML file and place it in the specified directory
+            generate_html_output(config, cmd)
+        else:
+            logging.error("Invalid format specified. Use 'markdown' or 'html'.")
             exit(1)
 
-    elif config["format"] == "html":
-        try:
-            # Generate the HTML file
-            logging.debug("Generating QC checklist HTML via Quarto...")
-            cmd2 = (
-                cmd
-                + f" --to html --output {config['basename']}.html --embed-resources --standalone --debug"
-            )
-            out = subprocess.run(cmd2, shell=True, check=True, capture_output=True)
-            logging.info("HTML file generated successfully.")
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Error generating HTML: {e}")
-            exit(1)
-    else:
-        logging.error("Invalid format specified. Use 'markdown' or 'html'.")
-        exit(1)
-
+    logging.info("All output files generated successfully.")
     logging.debug("-" * 40)
 
     logging.debug("Cleaning up temporary files and folders...")
