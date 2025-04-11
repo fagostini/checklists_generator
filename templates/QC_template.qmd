@@ -34,7 +34,7 @@ On the project page:
 
 ## Documenting the status in the Clarity LIMS
 
-Open the LIMS _Project summary_ page:
+Open the LIMS _BCL conversion_ page:
 
 - On GenStat, go to the _Samples_ tab
 - Click on any of the samples in the _Sample_ column (the first time to open the LIMS login page, and the second time to open the samples view)
@@ -167,7 +167,7 @@ Open the [bioinfo tab](<genstat_url>/bioinfo/<project_id>):
 
 ### Positive and negative controls
 
-Positive and negative controls are valid for a calendar year, in their own P.Ositive and N.Egative projects. Generally, add them only if it explicitly stated in the running notes.
+Positive and negative controls are valid for a calendar year, and can be found in their own P.Ositive and N.Egative projects. In general, add them only if it explicitly stated in the running notes.
 
 ### Lane yields
 
