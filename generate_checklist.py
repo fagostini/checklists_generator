@@ -370,7 +370,8 @@ def cleanup_temporary_data(config: dict):
             logging.debug(f"Removing temporary file: {tmp_md}")
             tmp_md.unlink()
 
-    paths_list = list(pathlib.Path().glob(f"**/{config['basename']}_files"))
+    # Remove the html files
+    paths_list = list(pathlib.Path().glob(f"**/{config['basename']}_*_files"))
     for tmp_path in paths_list:
         for path, dirs, files in tmp_path.walk(top_down=False):
             for file in files:
@@ -460,7 +461,7 @@ if __name__ == "__main__":
     for key, template in templates_dict.items():
         logging.debug(f"Generating {key} output using template: {template}")
         # Prepare the base command to run Quarto
-        cmd = f"{config['quarto_path']} render {template}"
+        cmd = f"{config['quarto_path']} render {template} --no-clean"
         cmd += f" --output-dir {config['output_path']} --execute-dir {config['output_path']}"
         if config["format"] == "markdown":
             cmd += f" --to commonmark --output {config['basename']}_{key}.md"

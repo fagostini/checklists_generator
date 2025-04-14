@@ -95,7 +95,7 @@ In the table at the bottom of the page, the _QC_ column refers to whether the sa
 
 ### Data organisation on the UPPMAX cluster
 
-- [ ] Log in into Miarka
+- [ ] Log into Miarka
 - [ ] Start the data organisation by running the following command:
 ```bash
 ngi_pipeline_start.py organize flowcell <flowcell_id> -p <project_id>

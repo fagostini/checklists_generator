@@ -1,2 +1,39 @@
 
 ## Close Project
+
+### Final checks on Genomic Status before closing
+
+On GenStat, go to the _Links_ tab:
+
+ - [ ] Check that the _Project Folder_ link is working
+
+In the _Project information_ tab, and check the following:
+
+- [ ] The _Lanes Ordered_ matches the _Lanes started_
+- [ ] The number of samples is correct in both _Samples_ and _Charon Status_ tables
+
+- [ ] There are no running notes that require the project to be kept open
+
+In the _User communication_ tab:
+
+- [ ] Check that there is no ongoing ticket
+
+If there is any open ticket, contact the project coordinator.
+
+Click on the [bioinfo tab](<genstat_url>/bioinfo/<project_id>) and check the following:
+
+- [ ] The QC boxes are correctly set
+- [ ] The delivery dates are set
+
+On LIMS, select _Project_ from the dropdown menu and search for the project id (<project_id>). In the list that appears:
+
+- [ ] Check that all samples have ONLY the _Project Summary_ button
+
+### Final step on Google Drive
+
+On GenStat, go to the _Links_ tab, and open the _Project Folder_ link.
+
+- [ ] Go to *_Quality Assurance system* > Projects > Ongoing > projects > <project_id>
+- [ ] Move the project folder to the folder *_Can be Archived*
+
+### Final steps in LIMS
