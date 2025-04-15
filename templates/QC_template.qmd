@@ -121,7 +121,7 @@ ngi_pipeline_start.py qc project <ngi_path>/DATA/<project_id>
 - [ ] Write a running note that the fastqc and fast screen are done/started
 
 ```text
-Data organized and QC started for all samples on <flowcell_id>
+Data organized and QC started for all samples on <flowcell_id>.
 ```
 
 - [ ] Sign the note and add the required tags
@@ -157,7 +157,7 @@ Open the [bioinfo tab](<genstat_url>/bioinfo/<project_id>):
 - [ ] Fill all the fields according to the results of the MultiQC report
 
 ::: {.callout-tip title="Write a running note [OPTIONAL]"}
-- [ ] Write a running note if there are things to bring up from the report: `MultiQC report has been generated for <project_id>`
+- [ ] Write a running note if there are things to bring up from the report: `MultiQC report has been generated for <project_id>.`
 - [ ] Sign the note and add the required tags
 :::
 
