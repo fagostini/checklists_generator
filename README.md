@@ -33,6 +33,7 @@ quarto render qmds/<qmd_file> --to html --embed-resources --standalone
 - `--author`: The full name of the author. If not provided, the script will not include the author in the output file.
 - `--email`: The email address of the author. If not provided, the script will not include the email in the output file.
 - `--ngi-path`: The path to the NGI folder on Miarka. This is used to generate the path to the project folders. If not provided, the script will leave a generic placeholder (`<ngi_path>`) in the output file.
+- `--config-path`: The path to the TACA configuration folder. This is used to generate the path to the project folders. If not provided, the script will leave a generic placeholder (`<config_path>`) in the output file.
 - `--genstat-url`: The URL for the Genomics Status page. If not provided, the script will leave a generic placeholder (`<genstat_url>`) in the output file.
 - `--charon-url`: The URL for the Charon page. If not provided, the script will leave a generic placeholder (`<charon_url>`) in the output file.
 - `--quarto-path`: The path where the Quarto file will be saved. The default is `/usr/local/bin/quarto`. If the executable is not found, the script will attempt to search for it in the system path.
@@ -53,6 +54,7 @@ If a `config.json` file is present in the same directory as the script, it will 
 - `author [string]`
 - `email [string]`
 - `ngi_path [string]`
+- `config_path [string]`
 - `genstat_url [string]`
 - `charon_url [string]`
 - `quarto_path [string]`
@@ -70,11 +72,13 @@ If a `config.json` file is present in the same directory as the script, it will 
 {
   "author": "John Doe",
   "email": "john.doe@scilifelab.se",
+  "format": "markdown",
+  "output_path": "/path/to/output/directory",
+  "output_structure": "nested",
+  "quarto_path": "/usr/local/bin/quarto",
   "ngi_path": "/path/to/NGI/folder",
   "genstat_url": "https://genstat.example.com",
   "charon_url": "https://charon.example.com",
-  "quarto_path": "/usr/local/bin/quarto",
-  "output_path": "/path/to/output/directory",
-  "output_structure": "nested"
+  "config_path": "/path/to/conf/TACA"
 }
 ```

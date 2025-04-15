@@ -62,6 +62,12 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
+        "--config-path",
+        type=pathlib.Path,
+        help="Path to the config files directory.",
+        default=None,
+    )
+    parser.add_argument(
         "--genstat-url",
         type=str,
         help="Base URL for Genomics Status.",
