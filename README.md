@@ -15,12 +15,18 @@ Clone the repository and run the following minimal command in the root directory
 python generate_checklist.py --output-path . --format html
 ```
 
-This will generate three checklists (i.e. QC, Delivery and Close) in HTML format in the current directory. It will also generate the corresponding `.qmd` files with the same base name, and place them in the `qmds` folder. The `.qmd` file is a Quarto document that can be edited and rendered to generate a new HTML file with the updated checklist.
+This will generate three checklists (i.e. QC, Delivery and Close) in HTML format in the current directory. It will also generate the corresponding `.qmd` files with the same base name, and place them in the `qmds` folder. A `.qmd` file is a Quarto document that can be edited and rendered to generate a new HTML file with the updated checklist.
 
 To re-generate any of the checklists after having modified its `.qmd` file, run the following command:
 
 ```bash
 quarto render qmds/<qmd_file> --to html --embed-resources --standalone
+```
+
+Instead, if you want to generate the checklists in markdown format, run:
+
+```bash
+quarto render qmds/<qmd_file> --to markdown --embed-resources --standalone
 ```
 
 ## Options

@@ -291,7 +291,12 @@ def parse_markdown_templates(config: dict) -> dict:
 
     def write_template(label: str):
         """Write the template content to the output file."""
-        with open(f"{config['basename']}_{label}.qmd", "w") as output_file:
+        outname = (
+            f"{config['basename']}_{label}.qmd"
+            if config["basename"] != ""
+            else f"{label}.qmd"
+        )
+        with open(outname, "w") as output_file:
             output_file.write(header)
             # Write the template content
             with open(
@@ -313,9 +318,13 @@ def parse_markdown_templates(config: dict) -> dict:
     write_template("Close")
 
     return {
-        "QC": f"{config['basename']}_QC.qmd",
-        "Delivery": f"{config['basename']}_Delivery.qmd",
-        "Close": f"{config['basename']}_Close.qmd",
+        "QC": f"{config['basename']}_QC.qmd" if config["basename"] != "" else "QC.qmd",
+        "Delivery": f"{config['basename']}_Delivery.qmd"
+        if config["basename"] != ""
+        else "Delivery.qmd",
+        "Close": f"{config['basename']}_Close.qmd"
+        if config["basename"] != ""
+        else "Close.qmd",
     }
 
 
@@ -325,9 +334,12 @@ def generate_markdown_output(config: dict, cmd: str, label: str):
     try:
         _ = subprocess.run(cmd, shell=True, check=True, capture_output=True)
         output_stream = []
-        with open(
-            config["output_path"].joinpath(f"{config['basename']}_{label}.md"), "r"
-        ) as input_file:
+        outname = (
+            f"{config['basename']}_{label}.md"
+            if config["basename"] != ""
+            else f"{label}.md"
+        )
+        with open(config["output_path"].joinpath(outname), "r") as input_file:
             for line in input_file:
                 if line.startswith("<"):
                     # Remove some HTML tags for aesthetic purposes
@@ -337,9 +349,7 @@ def generate_markdown_output(config: dict, cmd: str, label: str):
                     line = re.sub(r"> -", "-", line)
                 line = re.sub(r"☐", "[ ]", line)
                 output_stream.append(line)
-        with open(
-            config["output_path"].joinpath(f"{config['basename']}_{label}.md"), "w"
-        ) as output_file:
+        with open(config["output_path"].joinpath(outname), "w") as output_file:
             for line in output_stream:
                 output_file.write(line)
         logging.debug("Markdown file generated successfully.")
@@ -371,6 +381,7 @@ def cleanup_temporary_data(config: dict):
 
     # Remove the md files
     files_list = list(pathlib.Path().glob(f"**/{config['basename']}*.md"))
+    files_list = [x for x in files_list if not re.match("README.md", x.name)]
     for tmp_md in files_list:
         if tmp_md.is_file():
             logging.debug(f"Removing temporary file: {tmp_md}")
@@ -422,11 +433,25 @@ if __name__ == "__main__":
 
     # Check if the output directory exists
     if not args.force:
-        files_list = [
-            x
-            for x in config["output_path"].glob(f"{config['basename']}*")
-            if x.is_file()
-        ]
+        if config["basename"] != "":
+            files_list = [
+                x
+                for x in config["output_path"].glob(f"{config['basename']}*")
+                if x.is_file()
+            ]
+        else:
+            files_list = [
+                x
+                for x in [
+                    "QC.html",
+                    "QC.md",
+                    "Delivery.html",
+                    "Delivery.md",
+                    "Close.html",
+                    "Close.md",
+                ]
+                if config["output_path"].joinpath(x).is_file()
+            ]
         if files_list:
             logging.error(
                 "The following files already exist and will not be overwritten:"
@@ -470,12 +495,22 @@ if __name__ == "__main__":
         cmd = f"{config['quarto_path']} render {template} --no-clean"
         cmd += f" --output-dir {config['output_path']} --execute-dir {config['output_path']}"
         if config["format"] == "markdown":
-            cmd += f" --to commonmark --output {config['basename']}_{key}.md"
+            cmd += " --to commonmark"
+            cmd += (
+                f" --output {config['basename']}_{key}.md"
+                if config["basename"] != ""
+                else f" --output {key}.md"
+            )
             # Generate the Markdown file and place it in the specified directory
             generate_markdown_output(config, cmd, key)
 
         elif config["format"] == "html":
-            cmd += f" --to html --output {config['basename']}_{key}.html --embed-resources --standalone --debug"
+            cmd += " --to html --embed-resources --standalone --debug"
+            cmd += (
+                f"--output {config['basename']}_{key}.html"
+                if config["basename"] != ""
+                else f" --output {key}.html"
+            )
             # Generate the HTML file and place it in the specified directory
             generate_html_output(config, cmd)
         else:

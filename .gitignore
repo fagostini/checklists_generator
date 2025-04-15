@@ -8,6 +8,7 @@
 **/20*,.qmd
 qmds/*
 **/*.html
+**/*_files
 
 # Local configuration file
 config.json
