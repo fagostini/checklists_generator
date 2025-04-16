@@ -1,6 +1,12 @@
-# QC_checklist_generator
+# Checklists generator
 
-Python wrapper to automatically generate the bioinfo QC checklist
+Python script to dynamically generate the bioinfo production checklists for QC, Delivery and Close of NGI sequencing projects. The script uses Quarto to generate the checklists in HTML or markdown format. The checklists are based on templates that can be customized to fit the needs of different projects.
+
+The templates are based on the following internal documents and versions:
+
+- Bioinfo QC: _1617:**4**_
+- Delivery: _1286:**22**_
+- Close: _1262:**17**_
 
 ## Requirements
 
@@ -12,7 +18,7 @@ Python wrapper to automatically generate the bioinfo QC checklist
 Clone the repository and run the following minimal command in the root directory:
 
 ```bash
-python generate_checklist.py --output-path . --format html
+python generate_checklists.py --output-path . --format html
 ```
 
 This will generate three checklists (i.e. QC, Delivery and Close) in HTML format in the current directory. It will also generate the corresponding `.qmd` files with the same base name, and place them in the `qmds` folder. A `.qmd` file is a Quarto document that can be edited and rendered to generate a new HTML file with the updated checklist.
