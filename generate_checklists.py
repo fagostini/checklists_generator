@@ -288,6 +288,8 @@ def parse_markdown_templates(config: dict) -> dict:
             line = re.sub(r"<genstat_url>", f"{config['genstat_url']}", line)
         if config["charon_url"]:
             line = re.sub(r"<charon_url>", f"{config['charon_url']}", line)
+        if config["config_path"]:
+            line = re.sub(r"<config_path>", f"{config['config_path']}", line)
         return line
 
     def write_template(label: str):

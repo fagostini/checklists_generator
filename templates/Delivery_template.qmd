@@ -6,10 +6,10 @@
 - [ ] Log into Miarka
 - [ ] Move to the project directory and submit the report job:
 ```bash
-cd <ngi_path>/ANALYSIS/<project_id> && ngi_reports project_summary -p <project_id> -s '<author_name>'`
+cd <ngi_path>/ANALYSIS/<project_id> && ngi_reports project_summary -p <project_id> -s '<author_name>'
 ```
 
-This step creates the `reports` directory
+This step creates the `reports` directory.
 
 Open the markdown file in the `reports` directory, and check the following:
 
@@ -24,6 +24,8 @@ If any of the above points are not correct, you can edit the markdown file direc
 ```bash
 make_report [Project_name]_project_summary.md
 ```
+
+- [ ] Transfer the multiqc report and the `reports` directory to the local machine for later use.
 
 ### Standard DDS delivery
 
@@ -83,8 +85,10 @@ taca -c <config_path>/sthlm_taca_fastq_delivery.yml deliver --cluster dds releas
   - Anyone else from the GenStat project description
   - Bioinfo team leader
   - Project coordinator
-- [ ] Set _Project ID_ field to be the project name
-- [ ] Complete the other fields and select the Macro _Delivery - Raw Data (with fields)_
+- [ ] Set _Project ID_ field to be the project name (format: `<username>_<year>_<index>`)
+- [ ] Select _Form_ -> _Data delivery_
+- [ ] Complete all the fields
+- [ ] Apply the Macro _Delivery - Raw Data (with fields)_
 - [ ] Add the following attachments to the email:
   - Project report
   - Info.txt files
@@ -94,6 +98,7 @@ taca -c <config_path>/sthlm_taca_fastq_delivery.yml deliver --cluster dds releas
 - [ ] Submit the ticket as _Solved_
 
 Open the LIMS _Project summary_ page:
+
 - On GenStat, go to the _Samples_ tab
 - Click on any of the samples in the _Sample_ column (the first time to open the LIMS login page, and the second time to open the samples view)
 - Click on the _Project Summary_ button
