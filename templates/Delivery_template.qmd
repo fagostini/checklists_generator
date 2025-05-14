@@ -6,7 +6,7 @@
 - [ ] Log into Miarka
 - [ ] Move to the project directory and submit the report job:
 ```bash
-cd <ngi_path>/ANALYSIS/<project_id> && ngi_reports project_summary -p <project_id> -s '<author_name>'`
+cd <ngi_path>/ANALYSIS/<project_id> && ngi_reports project_summary -p <project_id> -s '<author_name>'
 ```
 
 This step creates the `reports` directory

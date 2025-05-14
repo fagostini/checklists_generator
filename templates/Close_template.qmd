@@ -47,6 +47,7 @@ On the LIMS _Project summary_ page, check the following:
   - If not, click on _Reads aggregation | Run_ and then _Record changes | Run_
 - [ ] _QC_ field has the correct status
 - [ ] _Status (manual)/Set Status (manual)_ field is set to either _Finished_ or _Aborted_
+  - If not, set it to _Finished_, but leave the _Aborted_ as is, if any
 - [ ] The _Set App QC_ field is set to _N/A_, if no best practice analysis was performed
 
 - [ ] Upload the project report
