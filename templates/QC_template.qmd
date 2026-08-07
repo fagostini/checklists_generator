@@ -9,8 +9,7 @@ If you provided the project id when generating this checklist, you can access it
 :::
 
 - [ ] Check the running notes for anything that needs to be taken into account during the QC
-- [ ] Check the number of lanes/units
- ordered and obtained
+- [ ] Check the number of lanes/units ordered and obtained
 
 ## Aggregate reads in the LIMS _Project summary_ page
 Open the LIMS _Project summary_ page:
@@ -20,18 +19,20 @@ Open the LIMS _Project summary_ page:
 - Click on the *Project Summary* button
 
 On the LIMS page:
+
 - [ ] Click on _Reads Aggregation | Run_
 
 
 ### Check Yield and quality QC
 
 For samples, check the following:
+
 - [ ] Total reads (based on number of samples and total number of reads ordered)
 - [ ] Q30 (see @tbl-q30)
 - [ ] If yield and quality has been reached enter the sequencing date in _All samples sequenced_
 - [ ] Put your signature in the _Signature All samples sequenced_
 - [ ] Check other fields for correctness
-- [ ] Click on _Record Aggregation | Run_
+- [ ] Click on _Reads Aggregation | Run_
 
 In the table at the bottom of the page, the *QC* column refers to whether the sample has to be delivered or not.
 
