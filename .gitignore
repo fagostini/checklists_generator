@@ -16,4 +16,7 @@ config.json
 
 **/*.quarto_ipynb
 
+# Python caches
+__pycache__/
 **.pyc
+.ruff_cache/

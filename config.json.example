@@ -10,14 +10,5 @@
   "genstat_url": "https://genomics-status.example.com",
   "charon_url": "https://charon.example.com",
   "config_path": "/path/to/conf/TACA",
-  "log_level": "INFO",
-  "project": "",
-  "flowcell": "",
-  "slide": "",
-  "genome_path": "",
-  "transcriptome_path": "",
-  "instrument": "",
-  "visium_base_path": "",
-  "local_reports_path": "",
-  "script_assets_path": ""
+  "log_level": "INFO"
 }

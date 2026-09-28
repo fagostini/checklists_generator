@@ -5,7 +5,9 @@ import json
 import logging
 import pathlib
 import re
+import shutil
 import subprocess
+import sys
 import yaml
 from datetime import datetime
 from rich.logging import RichHandler
@@ -30,7 +32,7 @@ logging.basicConfig(
 def create_parser():
     """Create and return the argument parser."""
     parser = argparse.ArgumentParser(
-        description="Generate a list of files in a directory."
+        description="Generate the bioinformatic production checklists (QC, Delivery, Close) from Quarto templates."
     )
     parser.add_argument(
         "--templates-path",
@@ -109,7 +111,7 @@ def create_parser():
     parser.add_argument(
         "--best-practice",
         type=str,
-        help="Author signature.",
+        help="Best practice workflow to include in the checklists.",
         default=None,
         choices=["visium"],
     )
@@ -211,19 +213,23 @@ def parse_args():
 def set_run_parameters(args):
     """Set the run parameters based on the command-line arguments."""
     config = {}
+    script_dir = pathlib.Path(__file__).resolve().parent
     # Valid config keys (must match argparse argument destination names)
     _parser = create_parser()
     VALID_CONFIG_KEYS = {k.dest for k in _parser._actions}
+    # Argument defaults, used to tell explicit CLI values apart from unset ones
+    arg_defaults = {k.dest: k.default for k in _parser._actions if k.dest}
     # Load the config file if it exists
-    if pathlib.Path("config.json").is_file():
-        with open("config.json", "r") as f:
+    config_file = script_dir.joinpath("config.json")
+    if config_file.is_file():
+        with open(config_file, "r") as f:
             raw_config = json.load(f)
         if not isinstance(raw_config, dict):
             logging.error(
                 "config.json must contain a JSON object (key-value pairs), "
                 f"got {type(raw_config).__name__}."
             )
-            exit(1)
+            sys.exit(1)
         # Check for unknown keys
         unknown = {k for k in raw_config if k not in VALID_CONFIG_KEYS}
         if unknown:
@@ -242,20 +248,20 @@ def set_run_parameters(args):
                 logging.error(
                     f"Required config key '{key}' is missing from config.json."
                 )
-                exit(1)
+                sys.exit(1)
             if not isinstance(raw_config[key], expected_type):
                 logging.error(
                     f"Config key '{key}' must be a {expected_type.__name__}, "
                     f"got {type(raw_config[key]).__name__}."
                 )
-                exit(1)
+                sys.exit(1)
         # Check for null/None values on required string keys
         for key, expected_type in required_keys.items():
             if raw_config[key] is None:
                 logging.error(
                     f"Config key '{key}' cannot be null. Please set a value in config.json."
                 )
-                exit(1)
+                sys.exit(1)
         # Validate best_practice choices
         if "best_practice" in raw_config and raw_config["best_practice"] not in (
             "visium",
@@ -264,29 +270,31 @@ def set_run_parameters(args):
             logging.error(
                 f"Config key 'best_practice' must be 'visium' or empty, got '{raw_config['best_practice']}'."
             )
-            exit(1)
+            sys.exit(1)
         config = raw_config
         for key, value in config.items():
             if "path" in key or "dir" in key:
                 # Convert string paths to pathlib.Path objects
                 p = pathlib.Path(value)
+                if key == "templates_path" and not p.is_absolute():
+                    p = script_dir.joinpath(p)
                 resolved = p.resolve()
                 if ".." in p.parts:
                     logging.error(f"Path traversal detected in '{key}': {value}")
-                    exit(1)
-                if key == "templates_path":
-                    project_root = pathlib.Path(__file__).resolve().parent
-                    if not str(resolved).startswith(str(project_root)):
-                        logging.error(
-                            f"Templates path must resolve to within the project directory. "
-                            f"Got '{resolved}' but project root is '{project_root}'."
-                        )
-                        exit(1)
+                    sys.exit(1)
+                if key == "templates_path" and not resolved.is_relative_to(script_dir):
+                    logging.error(
+                        f"Templates path must resolve to within the project directory. "
+                        f"Got '{resolved}' but project root is '{script_dir}'."
+                    )
+                    sys.exit(1)
                 config[key] = p
 
-    # Re-set the config parameters based on command-line arguments
+    # Re-set the config parameters based on command-line arguments.
+    # A CLI value only overrides the config file when it was explicitly set
+    # (i.e. differs from the argparse default).
     for key, value in vars(args).items():
-        if key not in config or value is not None:
+        if key not in config or value != arg_defaults.get(key):
             # Update the config with command-line arguments
             if key in ("templates_path",):
                 p = (
@@ -294,20 +302,21 @@ def set_run_parameters(args):
                     if not isinstance(value, pathlib.Path)
                     else value
                 )
+                if not p.is_absolute():
+                    p = script_dir.joinpath(p)
                 resolved = p.resolve()
-                project_root = pathlib.Path(__file__).resolve().parent
-                if not str(resolved).startswith(str(project_root)):
+                if not resolved.is_relative_to(script_dir):
                     logging.error(
                         f"Templates path must resolve to within the project directory. "
-                        f"Got '{p.resolve()}' but project root is '{project_root}'."
+                        f"Got '{resolved}' but project root is '{script_dir}'."
                     )
-                    exit(1)
+                    sys.exit(1)
                 config[key] = p
             else:
                 config[key] = value
 
     # Set the output directory and file basename
-    prefix = f"{datetime.now().strftime('%Y%m%d')}_" if args.timestamp else ""
+    prefix = f"{datetime.now().strftime('%Y%m%d')}_" if config.get("timestamp") else ""
     prefix += f"{config['project']}_" if config["project"] else ""
     config["basename"] = prefix[:-1] if prefix.endswith("_") else prefix
     config["basename"] = re.sub(r"[^A-Za-z0-9_\-\.]", "", config["basename"])
@@ -329,7 +338,7 @@ def validate_project_id(project_id: str) -> None:
 
 def validate_project_name(project_name: str) -> None:
     """Validate the project name format."""
-    if not re.match(r"^[A-Z].[A-Za-z]+_[0-9]{2}_[0-9]{2}$", project_name):
+    if not re.match(r"^[A-Z]\.[A-Za-z]+_[0-9]{2}_[0-9]{2}$", project_name):
         raise ValueError(
             "Project Name is not in the expected format. Please check the input or drop the option."
         )
@@ -365,25 +374,35 @@ TEMPLATE_HEADER_MAP = {
 }
 
 
-def validate_quarto_path(quarto_path: pathlib.Path):
+def validate_quarto_path(quarto_path):
     """Validate the Quarto path."""
-    proc = subprocess.run(
-        [str(quarto_path), "--version"], capture_output=True, text=True
-    )
-    if proc.returncode != 0:
-        logging.warning(
-            "Quarto not found at configured path '%s'. Attempting to find it in the system path."
-        )
-        proc = subprocess.run(["which", "quarto"], capture_output=True, text=True)
-        if proc.returncode != 0:
-            logging.error("Quarto not found in the system path.")
-            exit(1)
-        else:
-            quarto_path = pathlib.Path(proc.stdout.strip())
-            logging.warning(f"Falling back to quarto from system path: {quarto_path}")
+    if quarto_path is not None:
+        quarto_path = pathlib.Path(quarto_path)
+        try:
             proc = subprocess.run(
                 [str(quarto_path), "--version"], capture_output=True, text=True
             )
+        except OSError:
+            proc = None
+        if proc is not None and proc.returncode == 0:
+            return quarto_path, proc.stdout.strip()
+        logging.warning(
+            f"Quarto not found at configured path '{quarto_path}'. "
+            "Attempting to find it in the system path."
+        )
+    else:
+        logging.warning(
+            "No Quarto path configured. Attempting to find it in the system path."
+        )
+    found = shutil.which("quarto")
+    if found is None:
+        logging.error("Quarto not found in the system path.")
+        sys.exit(1)
+    quarto_path = pathlib.Path(found)
+    logging.warning(f"Falling back to quarto from system path: {quarto_path}")
+    proc = subprocess.run(
+        [str(quarto_path), "--version"], capture_output=True, text=True
+    )
     quarto_version = proc.stdout.strip() if proc.returncode == 0 else ""
     return quarto_path, quarto_version
 
@@ -394,7 +413,7 @@ def validate_templates(template_path: pathlib.Path, extra_templates: list = None
         extra_templates = []
     if not template_path.is_dir():
         logging.error("The specified template path does not exist.")
-        exit(1)
+        sys.exit(1)
     required_templates = [t["file"] for t in REQUIRED_TEMPLATES] + extra_templates
     missing_templates = [
         template
@@ -405,7 +424,7 @@ def validate_templates(template_path: pathlib.Path, extra_templates: list = None
         logging.error(
             f"The following required templates are missing: {', '.join(missing_templates)}"
         )
-        exit(1)
+        sys.exit(1)
 
 
 def prepare_markdown_header(config: dict, template: str):
@@ -425,7 +444,7 @@ def prepare_markdown_header(config: dict, template: str):
         subtitle = "Non-Accredited Bioinformatic Analysis"
     else:
         logging.error(f"Unknown template '{template}'. Cannot prepare markdown header.")
-        exit(1)
+        sys.exit(1)
     # Prepare the markdown header using yaml.dump for safe escaping
     header = {
         "title": f"{config['project']} {title}"
@@ -465,7 +484,6 @@ def prepare_markdown_header(config: dict, template: str):
         indent=2,
         width=120,
     )
-    yaml_body = yaml_body.replace(": True", ": true")
     return f"---\n{yaml_body}\n---\n"
 
 
@@ -599,7 +617,7 @@ def parse_markdown_templates(config: dict) -> dict:
             if config["basename"] != ""
             else f"{label}.qmd"
         )
-        results_dict["Best_Practice"] = outname
+        results_dict[label] = outname
         header = prepare_markdown_header(config, "visium")
         write_template(label)
 
@@ -634,7 +652,7 @@ def generate_markdown_output(config: dict, cmd: list, label: str):
     except subprocess.CalledProcessError as e:
         stderr = e.stderr.decode("utf-8", errors="replace")
         logging.error(f"Error generating markdown (exit code {e.returncode}): {stderr}")
-        exit(1)
+        sys.exit(1)
 
 
 def generate_html_output(config: dict, cmd: list):
@@ -646,38 +664,34 @@ def generate_html_output(config: dict, cmd: list):
     except subprocess.CalledProcessError as e:
         stderr = e.stderr.decode("utf-8", errors="replace")
         logging.error(f"Error generating HTML (exit code {e.returncode}): {stderr}")
-        exit(1)
+        sys.exit(1)
 
 
 def cleanup_temporary_data(config: dict):
     """Remove temporary files and directories created during the process."""
-    files_list = list(
-        pathlib.Path(__file__).resolve().parent.glob(f"{config['basename']}*.qmd")
-    )
-    # Move qmd files to the quarto directory
-    for qmd in files_list:
-        if qmd.is_file():
-            qmd.rename(config["qmds_path"].joinpath(qmd.name))
+    script_dir = pathlib.Path(__file__).resolve().parent
+    workdirs = (script_dir, pathlib.Path.cwd())
+    # Move the generated qmd files to the qmds directory
+    for workdir in workdirs:
+        files_list = list(workdir.glob(f"{config['basename']}*.qmd"))
+        for qmd in files_list:
+            if qmd.is_file():
+                qmd.rename(config["qmds_path"].joinpath(qmd.name))
 
-    # Remove the md files
-    files_list = list(pathlib.Path().glob(f"**/{config['basename']}*.md"))
-    files_list = [x for x in files_list if not re.match("README.md", x.name)]
-    for tmp_md in files_list:
-        if tmp_md.is_file():
-            logging.debug(f"Removing temporary file: {tmp_md}")
-            tmp_md.unlink()
-
-    # Remove the html files
-    paths_list = list(pathlib.Path().glob(f"**/{config['basename']}_*_files"))
-    for tmp_path in paths_list:
-        for path, dirs, files in tmp_path.walk(top_down=False):
-            for file in files:
-                file_path = pathlib.Path(path).joinpath(file)
-                if file_path.is_file():
-                    logging.debug(f"Removing temporary file: {file_path}")
-                    file_path.unlink()
-            logging.debug(f"Removing temporary directory: {path}")
-            path.rmdir()
+    # Remove the quarto resource folders. These are created next to the
+    # source qmd files (i.e. in the working directory), not in the output
+    # directory, so only look at the top level of the working directories.
+    for workdir in workdirs:
+        paths_list = list(workdir.glob(f"{config['basename']}_*_files"))
+        for tmp_path in paths_list:
+            for path, dirs, files in tmp_path.walk(top_down=False):
+                for file in files:
+                    file_path = pathlib.Path(path).joinpath(file)
+                    if file_path.is_file():
+                        logging.debug(f"Removing temporary file: {file_path}")
+                        file_path.unlink()
+                logging.debug(f"Removing temporary directory: {path}")
+                path.rmdir()
 
 
 if __name__ == "__main__":
@@ -689,11 +703,19 @@ if __name__ == "__main__":
             pathlib.Path(os.path.dirname(__file__)).joinpath("assets").resolve()
         )
 
-    # Set the logging level based on the command-line argument
-    logging.getLogger().setLevel(args.log_level)
-
     # Set the run parameters according to the command-line arguments and config file
     config = set_run_parameters(args)
+
+    # Set the logging level based on the merged configuration
+    logging.getLogger().setLevel(config["log_level"])
+
+    # Validate the output format before any file is written
+    if config["format"] not in ("markdown", "html"):
+        logging.error(
+            "A valid output format is required. Use 'markdown' or 'html' "
+            "via --format or the config file."
+        )
+        sys.exit(1)
 
     # Validate the project ID
     if config["project"]:
@@ -724,7 +746,7 @@ if __name__ == "__main__":
     config["qmds_path"].mkdir(parents=True, exist_ok=True)
 
     # Check if the output directory exists
-    if not args.force:
+    if not config["force"]:
         if config["basename"] != "":
             files_list = [
                 x
@@ -761,7 +783,7 @@ if __name__ == "__main__":
             logging.error(
                 "Use --force to overwrite existing files or specify a different output directory."
             )
-            exit(1)
+            sys.exit(1)
 
     # Summarise the run parameters
     logging.debug("-" * 40)
@@ -769,23 +791,23 @@ if __name__ == "__main__":
     logging.debug(f"    Quarto Path: '{config['quarto_path']}'")
     logging.debug(f"    Quarto Version: {quarto_version}")
     logging.debug(f"    Templates Path: '{config['templates_path'].resolve()}'")
-    logging.debug(f"    Project Name: [REDACTED]")
-    logging.debug(f"    Project ID: [REDACTED]")
-    logging.debug(f"    Flowcell ID: [REDACTED]")
+    logging.debug(f"    Project Name: '{config['name']}'")
+    logging.debug(f"    Project ID: '{config['project']}'")
+    logging.debug(f"    Flowcell ID: '{config['flowcell']}'")
     logging.debug(f"    Instrument: {config['instrument']}")
     logging.debug(f"    NGI Path: '{config['ngi_path']}'")
     if config["best_practice"]:
         logging.debug(f"    Genome Path: {config['genome_path']}")
         logging.debug(f"    Transcriptome Path: {config['transcriptome_path']}")
-    logging.debug(f"    Author: [REDACTED]")
-    logging.debug(f"    Author Signature: [REDACTED]")
-    logging.debug(f"    Author Email: [REDACTED]")
+    logging.debug(f"    Author: '{config['author']}'")
+    logging.debug(f"    Author Signature: '{config['signature']}'")
+    logging.debug(f"    Author Email: '{config['email']}'")
     logging.debug(f"    Output Directory: '{config['output_path']}'")
     logging.debug(f"    Output Format: {config['format']}")
     logging.debug(f"    Output Structure: {config['output_structure']}")
     logging.debug(f"    Local Reports Directory: '{config['local_reports_path']}'")
     logging.debug(f"    Assets Directory: '{config['script_assets_path']}'")
-    logging.debug(f"    Timestamp: {args.timestamp}")
+    logging.debug(f"    Timestamp: {config['timestamp']}")
     if config["format"] == "markdown":
         logging.debug(f"    Markdown Output Path: '{config['output_path']}'")
         logging.debug(f"    Markdown Filename: '{config['basename']}.md'")
@@ -835,13 +857,13 @@ if __name__ == "__main__":
                 outname,
             ]
             if logging.getLogger().level <= logging.DEBUG:
-                html_flags.append("--debug")
+                html_flags.extend(["--log-level", "debug"])
             cmd.extend(html_flags)
             # Generate the HTML file and place it in the specified directory
             generate_html_output(config, cmd)
         else:
             logging.error("Invalid format specified. Use 'markdown' or 'html'.")
-            exit(1)
+            sys.exit(1)
 
     logging.info("All output files generated successfully.")
     logging.debug("-" * 40)

@@ -53,5 +53,5 @@ repos:
         entry: python -m unittest discover
         language: python
         'types': [python]
-        additional_dependencies: [rich]
+        additional_dependencies: [rich, PyYAML]
         pass_filenames: false
