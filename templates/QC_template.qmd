@@ -11,6 +11,44 @@ If you provided the project id when generating this checklist, you can access it
 - [ ] Check the running notes for anything that needs to be taken into account during the QC
 - [ ] Check the number of lanes/units ordered and obtained
 
+## Close the _BCL conversion_ step on LIMS
+
+Open the LIMS _BCL conversion_ page:
+
+- On GenStat, go to the _Samples_ tab
+- Click on any of the samples in the _Sample_ column (the first time to open the LIMS login page, and the second time to open the samples view)
+- Click on the _BCL conversion_ button
+
+On the LIMS page:
+
+::: {.callout-important}
+Although possible, it is better to process one sample at the time
+:::
+
+- [ ] In the dropdown menu, change from _Container_ to _Project_
+- [ ] Click on _add group_ for the samples to process
+- [ ] Click on _Begin work_ at the top right corner
+
+In the next section:
+
+- [ ] Update the Document version (currently, 6)
+- [ ] Click on _BCL conversion and demultiplexing_
+
+Once the import is complete:
+
+- [ ] Update the _include reads_ column
+  - [ ] From the dropdown menu, select _Include reads_
+  - [ ] From the second dropdown menu, select _Yes_
+  - [ ] Click on _Apply_
+
+- [ ] Double-check that the _Include reads_ column is set to _Yes_ for all samples
+- [ ] Click on _Next step_ at the top right corner
+
+On the next page:
+
+- [ ] Select _Mark protocol as complete_ in the dropdown menu
+- [ ] Click on _Finish step_ at the top right corner
+
 ## Aggregate reads in the LIMS _Project summary_ page
 Open the LIMS _Project summary_ page:
 
