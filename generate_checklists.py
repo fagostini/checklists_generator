@@ -19,6 +19,10 @@ REQUIRED_TEMPLATES = [
     {"label": "Close", "file": "Close_template.qmd"},
 ]
 
+# Asset injected into the HTML output so that ticked checkboxes are
+# preserved when the page is printed or saved as a PDF
+CHECKBOX_PRINT_ASSET = "checkbox_print.html"
+
 
 logging.basicConfig(
     format="%(message)s",
@@ -445,6 +449,30 @@ def prepare_markdown_header(config: dict, template: str):
     else:
         logging.error(f"Unknown template '{template}'. Cannot prepare markdown header.")
         sys.exit(1)
+    html_format = {
+        "page-layout": "full",
+        "anchor-sections": True,
+        "collapse": True,
+        "tbl-cap-location": "bottom",
+        "theme": {
+            "light": "flatly",
+            "dark": "darkly",
+        },
+    }
+    assets_path = config.get("script_assets_path")
+    if assets_path:
+        print_asset = pathlib.Path(assets_path).joinpath(CHECKBOX_PRINT_ASSET).resolve()
+        if print_asset.is_file():
+            # Inject the checkbox print styles and the "Download PDF"
+            # helper button into the HTML output header
+            html_format["include-in-header"] = str(print_asset)
+        else:
+            logging.warning(
+                f"The checkbox print asset was not found at '{print_asset}'. "
+                "Ticked checkboxes will not be preserved when the HTML "
+                "output is saved as a PDF."
+            )
+
     # Prepare the markdown header using yaml.dump for safe escaping
     header = {
         "title": f"{config['project']} {title}"
@@ -455,16 +483,7 @@ def prepare_markdown_header(config: dict, template: str):
         "date": "today",
         "lang": "en-GB",
         "format": {
-            "html": {
-                "page-layout": "full",
-                "anchor-sections": True,
-                "collapse": True,
-                "tbl-cap-location": "bottom",
-                "theme": {
-                    "light": "flatly",
-                    "dark": "darkly",
-                },
-            },
+            "html": html_format,
             "commonmark": {
                 "wrap": "none",
             },
