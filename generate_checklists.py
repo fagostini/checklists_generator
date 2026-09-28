@@ -6,8 +6,16 @@ import logging
 import pathlib
 import re
 import subprocess
+import yaml
 from datetime import datetime
 from rich.logging import RichHandler
+
+# Template labels and their corresponding filenames (label: template_file)
+REQUIRED_TEMPLATES = [
+    {"label": "QC", "file": "QC_template.qmd"},
+    {"label": "Delivery", "file": "Delivery_template.qmd"},
+    {"label": "Close", "file": "Close_template.qmd"},
+]
 
 
 logging.basicConfig(
@@ -19,8 +27,8 @@ logging.basicConfig(
 )
 
 
-def parse_args():
-    """Parse command-line arguments."""
+def create_parser():
+    """Create and return the argument parser."""
     parser = argparse.ArgumentParser(
         description="Generate a list of files in a directory."
     )
@@ -112,6 +120,12 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
+        "--incoming-path",
+        type=pathlib.Path,
+        help="Path to the incoming data folder.",
+        default=None,
+    )
+    parser.add_argument(
         "--visium-base-path",
         type=pathlib.Path,
         help="Path to the Visium Base path directory.",
@@ -185,37 +199,118 @@ def parse_args():
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     )
+    return parser
+
+
+def parse_args():
+    """Parse command-line arguments."""
+    parser = create_parser()
     return parser.parse_args()
 
 
 def set_run_parameters(args):
     """Set the run parameters based on the command-line arguments."""
     config = {}
+    # Valid config keys (must match argparse argument destination names)
+    _parser = create_parser()
+    VALID_CONFIG_KEYS = {k.dest for k in _parser._actions}
     # Load the config file if it exists
     if pathlib.Path("config.json").is_file():
         with open("config.json", "r") as f:
-            config = json.load(f)
-        # Check for alien keys in the config file
-        not_found = {key for key in config.keys() if key not in vars(args).keys()}
-        if not_found:
-            logging.warning(
-                f"One or more keys in the config file are not among the expected keys: {not_found}"
+            raw_config = json.load(f)
+        if not isinstance(raw_config, dict):
+            logging.error(
+                "config.json must contain a JSON object (key-value pairs), "
+                f"got {type(raw_config).__name__}."
             )
+            exit(1)
+        # Check for unknown keys
+        unknown = {k for k in raw_config if k not in VALID_CONFIG_KEYS}
+        if unknown:
+            logging.warning(
+                f"One or more keys in the config file are not recognized: {unknown}"
+            )
+        # Validate required keys exist and have correct types
+        required_keys = {
+            "format": str,
+            "output_path": str,
+            "quarto_path": str,
+            "log_level": str,
+        }
+        for key, expected_type in required_keys.items():
+            if key not in raw_config:
+                logging.error(
+                    f"Required config key '{key}' is missing from config.json."
+                )
+                exit(1)
+            if not isinstance(raw_config[key], expected_type):
+                logging.error(
+                    f"Config key '{key}' must be a {expected_type.__name__}, "
+                    f"got {type(raw_config[key]).__name__}."
+                )
+                exit(1)
+        # Check for null/None values on required string keys
+        for key, expected_type in required_keys.items():
+            if raw_config[key] is None:
+                logging.error(
+                    f"Config key '{key}' cannot be null. Please set a value in config.json."
+                )
+                exit(1)
+        # Validate best_practice choices
+        if "best_practice" in raw_config and raw_config["best_practice"] not in (
+            "visium",
+            "",
+        ):
+            logging.error(
+                f"Config key 'best_practice' must be 'visium' or empty, got '{raw_config['best_practice']}'."
+            )
+            exit(1)
+        config = raw_config
         for key, value in config.items():
             if "path" in key or "dir" in key:
                 # Convert string paths to pathlib.Path objects
-                config[key] = pathlib.Path(value)
+                p = pathlib.Path(value)
+                resolved = p.resolve()
+                if ".." in p.parts:
+                    logging.error(f"Path traversal detected in '{key}': {value}")
+                    exit(1)
+                if key == "templates_path":
+                    project_root = pathlib.Path(__file__).resolve().parent
+                    if not str(resolved).startswith(str(project_root)):
+                        logging.error(
+                            f"Templates path must resolve to within the project directory. "
+                            f"Got '{resolved}' but project root is '{project_root}'."
+                        )
+                        exit(1)
+                config[key] = p
 
     # Re-set the config parameters based on command-line arguments
     for key, value in vars(args).items():
         if key not in config or value is not None:
             # Update the config with command-line arguments
-            config[key] = value
+            if key in ("templates_path",):
+                p = (
+                    pathlib.Path(value)
+                    if not isinstance(value, pathlib.Path)
+                    else value
+                )
+                resolved = p.resolve()
+                project_root = pathlib.Path(__file__).resolve().parent
+                if not str(resolved).startswith(str(project_root)):
+                    logging.error(
+                        f"Templates path must resolve to within the project directory. "
+                        f"Got '{p.resolve()}' but project root is '{project_root}'."
+                    )
+                    exit(1)
+                config[key] = p
+            else:
+                config[key] = value
 
     # Set the output directory and file basename
     prefix = f"{datetime.now().strftime('%Y%m%d')}_" if args.timestamp else ""
     prefix += f"{config['project']}_" if config["project"] else ""
     config["basename"] = prefix[:-1] if prefix.endswith("_") else prefix
+    config["basename"] = re.sub(r"[^A-Za-z0-9_\-\.]", "", config["basename"])
     if config["basename"] != "" and config["output_structure"] == "nested":
         config["output_path"] = config["output_path"].joinpath(config["basename"])
         if not config["output_path"].is_dir():
@@ -242,48 +337,65 @@ def validate_project_name(project_name: str) -> None:
 
 def validate_flowcell_id(flowcell_id: str) -> None:
     """Validate the flowcell ID format."""
-    if not re.match(
-        r"^[0-9]{6,8}_[A-Z]{1,2}[0-9]{5}_[0-9]{3,4}_[A-Z0-9]{9,10}(-[A-Z0-9]{5})?$",
-        flowcell_id,
-    ) and not re.match(
-        r"^[0-9]{8}_[A-Z]{2}[0-9]{6}_[A-Z][0-9]{10}$",  # AVITI flowcell format
-        flowcell_id,
+    if (
+        not re.match(
+            r"^[0-9]{6,8}_[A-Z]{1,2}[0-9]{5}_[0-9]{3,4}_[A-Z0-9]{9,10}(-[A-Z0-9]{5})?$",  # NovaSeq flowcell format
+            flowcell_id,
+        )
+        and not re.match(
+            r"^[0-9]{8}_[A-Z]{2}[0-9]{6}_[A-Z][0-9]{10}$",  # AVITI flowcell format
+            flowcell_id,
+        )
+        and not re.match(
+            r"^[0-9]{6,8}_[A-Z]{1,2}[0-9]{5}(R)?_[0-9]{1,3}_[A-Z0-9]{9,10}(-[A-Z0-9]{5})?$",  # NextSeq flowcell format
+            flowcell_id,
+        )
     ):
         raise ValueError(
             "Flowcell ID is not in the expected format. Please check the ID."
         )
 
 
+# Template label to lowercase header type mapping for prepare_markdown_header
+TEMPLATE_HEADER_MAP = {
+    "QC": "qc",
+    "Delivery": "delivery",
+    "Close": "close",
+    "Visium": "visium",
+}
+
+
 def validate_quarto_path(quarto_path: pathlib.Path):
     """Validate the Quarto path."""
-    # Check if the Quarto executable exists and is accessible
-    status, quarto_version = subprocess.getstatusoutput(f"{quarto_path} --version")
-    if status != 0:
-        logging.error(
-            "Quarto not found in the specified path. Attempting to find it in the system path."
+    proc = subprocess.run(
+        [str(quarto_path), "--version"], capture_output=True, text=True
+    )
+    if proc.returncode != 0:
+        logging.warning(
+            "Quarto not found at configured path '%s'. Attempting to find it in the system path."
         )
-        # Attempt to find Quarto in the system path
-        status, quarto_path = subprocess.getstatusoutput("which quarto")
-        if status != 0:
+        proc = subprocess.run(["which", "quarto"], capture_output=True, text=True)
+        if proc.returncode != 0:
             logging.error("Quarto not found in the system path.")
             exit(1)
         else:
-            status, quarto_version = subprocess.getstatusoutput(
-                f"{quarto_path} --version"
+            quarto_path = pathlib.Path(proc.stdout.strip())
+            logging.warning(f"Falling back to quarto from system path: {quarto_path}")
+            proc = subprocess.run(
+                [str(quarto_path), "--version"], capture_output=True, text=True
             )
-    return pathlib.Path(quarto_path), quarto_version
+    quarto_version = proc.stdout.strip() if proc.returncode == 0 else ""
+    return quarto_path, quarto_version
 
 
-def validate_templates(template_path: pathlib.Path, extra_templates: list = []):
+def validate_templates(template_path: pathlib.Path, extra_templates: list = None):
     """Validate the template path."""
+    if extra_templates is None:
+        extra_templates = []
     if not template_path.is_dir():
         logging.error("The specified template path does not exist.")
         exit(1)
-    required_templates = [
-        "QC_template.qmd",
-        "Delivery_template.qmd",
-        "Close_template.qmd",
-    ] + extra_templates
+    required_templates = [t["file"] for t in REQUIRED_TEMPLATES] + extra_templates
     missing_templates = [
         template
         for template in required_templates
@@ -314,43 +426,47 @@ def prepare_markdown_header(config: dict, template: str):
     else:
         logging.error(f"Unknown template '{template}'. Cannot prepare markdown header.")
         exit(1)
-    # Prepare the markdown header
-    md_header = "---\n"
-    md_header += (
-        f"title: {config['project']} {title}\n"
-        if config["project"]
-        else "title: Bioinformatic {title}\n"
+    # Prepare the markdown header using yaml.dump for safe escaping
+    header = {
+        "title": f"{config['project']} {title}"
+        if config.get("project")
+        else f"Bioinformatic {title}",
+        "subtitle": subtitle,
+        "description": "Automatically generated checklist",
+        "date": "today",
+        "lang": "en-GB",
+        "format": {
+            "html": {
+                "page-layout": "full",
+                "anchor-sections": True,
+                "collapse": True,
+                "tbl-cap-location": "bottom",
+                "theme": {
+                    "light": "flatly",
+                    "dark": "darkly",
+                },
+            },
+            "commonmark": {
+                "wrap": "none",
+            },
+        },
+        "version": "1.0",
+    }
+    if config.get("author"):
+        if config.get("email"):
+            header["author"] = f"{config['author']} <{config['email']}>"
+        else:
+            header["author"] = config["author"]
+    yaml_body = yaml.dump(
+        header,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+        indent=2,
+        width=120,
     )
-    md_header += (
-        f"author: {config['author']} <{config['email']}>\n"
-        if config["author"] and config["email"]
-        else f"author: {config['author']}\n"
-        if config["author"]
-        else ""
-    )
-    md_header += "\n".join(
-        [
-            f"subtitle: '{subtitle}'",
-            "description: 'Automatically generated checklist'",
-            "date: today",
-            "lang: en-GB",
-            "format:",
-            "  html:",
-            "    page-layout: full",
-            "    anchor-sections: true",
-            "    collapse: true",
-            "    tbl-cap-location: bottom",
-            "    theme:",
-            "      light: flatly",
-            "      dark: darkly",
-            "  commonmark:",
-            "    wrap: none",
-            "version: 1.0",
-            "---",
-            "",
-        ]
-    )
-    return md_header
+    yaml_body = yaml_body.replace(": True", ": true")
+    return f"---\n{yaml_body}\n---\n"
 
 
 def parse_markdown_templates(config: dict) -> dict:
@@ -358,48 +474,92 @@ def parse_markdown_templates(config: dict) -> dict:
 
     def parse_line(config, line):
         """Parse a line of the template and replace placeholders with actual values."""
-        if config["project"]:
-            line = re.sub(r"<project_id>", f"{config['project']}", line)
-        if config["name"]:
-            line = re.sub(r"<project_name>", f"{config['name']}", line)
-        if config["flowcell"]:
-            line = re.sub(r"<flowcell_id>", f"{config['flowcell']}", line)
-        if config["slide"]:
-            line = re.sub(r"<slide_id>", f"{config['slide']}", line)
-        if config["genome_path"]:
-            line = re.sub(r"<genome_path>", f"{config['genome_path']}", line)
-        if config["transcriptome_path"]:
-            line = re.sub(
-                r"<transcriptome_path>", f"{config['transcriptome_path']}", line
-            )
-        if config["author"]:
-            line = re.sub(r"<author_name>", f"{config['author']}", line)
-        if config["signature"] and config["signature"] != "":
-            line = re.sub(r"<author_signature>", f"/{config['signature']}", line)
-            line = re.sub(r"<user_signature>", f"{config['signature']}", line)
+        line = (
+            line.replace("<project_id>", str(config["project"]))
+            if config["project"]
+            else line
+        )
+        line = (
+            line.replace("<project_name>", str(config["name"]))
+            if config["name"]
+            else line
+        )
+        line = (
+            line.replace("<flowcell_id>", str(config["flowcell"]))
+            if config["flowcell"]
+            else line
+        )
+        line = (
+            line.replace("<slide_id>", str(config["slide"]))
+            if config["slide"]
+            else line
+        )
+        line = (
+            line.replace("<genome_path>", str(config["genome_path"]))
+            if config["genome_path"]
+            else line
+        )
+        line = (
+            line.replace("<transcriptome_path>", str(config["transcriptome_path"]))
+            if config["transcriptome_path"]
+            else line
+        )
+        line = (
+            line.replace("<author_name>", str(config["author"]))
+            if config.get("author")
+            else line
+        )
+        if config.get("signature", ""):
+            line = line.replace("<author_signature>", "/" + config["signature"])
+            line = line.replace("<user_signature>", config["signature"])
         else:
-            line = re.sub(r"<author_signature>|<user_signature>", "", line)
-        if config["ngi_path"]:
-            line = re.sub(r"<ngi_path>", f"{config['ngi_path']}", line)
-        if config["visium_base_path"]:
-            line = re.sub(r"<visium_base_path>", f"{config['visium_base_path']}", line)
-        if config["local_reports_path"]:
-            line = re.sub(
-                r"<local_reports_path>", f"{config['local_reports_path']}", line
-            )
-        if config["instrument"]:
+            line = line.replace("<author_signature>", "")
+            line = line.replace("<user_signature>", "")
+        line = (
+            line.replace("<ngi_path>", str(config["ngi_path"]))
+            if config["ngi_path"]
+            else line
+        )
+        line = (
+            line.replace("<incoming_path>", str(config["incoming_path"]))
+            if config.get("incoming_path")
+            else line
+        )
+        line = (
+            line.replace("<visium_base_path>", str(config["visium_base_path"]))
+            if config["visium_base_path"]
+            else line
+        )
+        line = (
+            line.replace("<local_reports_path>", str(config["local_reports_path"]))
+            if config["local_reports_path"]
+            else line
+        )
+        if config.get("instrument"):
             substitution = "element" if config["instrument"] == "aviti" else "fastq"
-            line = re.sub(r"<instrument_config>", f"{substitution}", line)
+            line = line.replace("<instrument_config>", substitution)
             substitution = "aviti" if config["instrument"] == "aviti" else ""
-            line = re.sub(r"<instrument_path>", f"{substitution}", line)
-        if config["genstat_url"]:
-            line = re.sub(r"<genstat_url>", f"{config['genstat_url']}", line)
-        if config["charon_url"]:
-            line = re.sub(r"<charon_url>", f"{config['charon_url']}", line)
-        if config["script_assets_path"]:
-            line = re.sub(r"<assets_path>", f"{config['script_assets_path']}", line)
-        if config["config_path"]:
-            line = re.sub(r"<config_path>", f"{config['config_path']}", line)
+            line = line.replace("<instrument_path>", substitution)
+        line = (
+            line.replace("<genstat_url>", str(config["genstat_url"]))
+            if config.get("genstat_url")
+            else line
+        )
+        line = (
+            line.replace("<charon_url>", str(config["charon_url"]))
+            if config.get("charon_url")
+            else line
+        )
+        line = (
+            line.replace("<assets_path>", str(config["script_assets_path"]))
+            if config["script_assets_path"]
+            else line
+        )
+        line = (
+            line.replace("<config_path>", str(config["config_path"]))
+            if config.get("config_path")
+            else line
+        )
         return line
 
     def write_template(label: str):
@@ -418,45 +578,39 @@ def parse_markdown_templates(config: dict) -> dict:
                 for line in template_file:
                     output_file.write(parse_line(config, line))
 
-    results_dict = {
-        "QC": f"{config['basename']}_QC.qmd" if config["basename"] != "" else "QC.qmd",
-        "Delivery": f"{config['basename']}_Delivery.qmd"
-        if config["basename"] != ""
-        else "Delivery.qmd",
-        "Close": f"{config['basename']}_Close.qmd"
-        if config["basename"] != ""
-        else "Close.qmd",
-    }
-
-    # Prepare QC template
-    header = prepare_markdown_header(config, "qc")
-    write_template("QC")
-
-    # Prepare Delivery template
-    header = prepare_markdown_header(config, "delivery")
-    write_template("Delivery")
-
-    # Prepare Close template
-    header = prepare_markdown_header(config, "close")
-    write_template("Close")
+    results_dict = {}
+    for tmpl in REQUIRED_TEMPLATES:
+        label = tmpl["label"]
+        outname = (
+            f"{config['basename']}_{label}.qmd"
+            if config["basename"] != ""
+            else f"{label}.qmd"
+        )
+        results_dict[label] = outname
+        header = prepare_markdown_header(
+            config, TEMPLATE_HEADER_MAP.get(label, label.lower())
+        )
+        write_template(label)
 
     if config["best_practice"] == "visium":
-        header = prepare_markdown_header(config, "visium")
-        write_template("Visium")
-        results_dict["Best_Practice"] = (
-            f"{config['basename']}_Visium.qmd"
+        label = "Visium"
+        outname = (
+            f"{config['basename']}_{label}.qmd"
             if config["basename"] != ""
-            else "Visium.qmd"
+            else f"{label}.qmd"
         )
+        results_dict["Best_Practice"] = outname
+        header = prepare_markdown_header(config, "visium")
+        write_template(label)
 
     return results_dict
 
 
-def generate_markdown_output(config: dict, cmd: str, label: str):
+def generate_markdown_output(config: dict, cmd: list, label: str):
     """Generate the markdown output using Quarto."""
     logging.debug("Generating markdown via Quarto...")
     try:
-        _ = subprocess.run(cmd, shell=True, check=True, capture_output=True)
+        _ = subprocess.run(cmd, shell=False, check=True, capture_output=True)
         output_stream = []
         outname = (
             f"{config['basename']}_{label}.md"
@@ -478,18 +632,20 @@ def generate_markdown_output(config: dict, cmd: str, label: str):
                 output_file.write(line)
         logging.debug("Markdown file generated successfully.")
     except subprocess.CalledProcessError as e:
-        logging.error(f"Error generating markdown: {e}")
+        stderr = e.stderr.decode("utf-8", errors="replace")
+        logging.error(f"Error generating markdown (exit code {e.returncode}): {stderr}")
         exit(1)
 
 
-def generate_html_output(config: dict, cmd: str):
+def generate_html_output(config: dict, cmd: list):
     """Generate the HTML output using Quarto."""
     logging.debug("Generating HTML via Quarto...")
     try:
-        _ = subprocess.run(cmd, shell=True, check=True, capture_output=True)
+        _ = subprocess.run(cmd, shell=False, check=True, capture_output=True)
         logging.debug("HTML file generated successfully.")
     except subprocess.CalledProcessError as e:
-        logging.warning(f"Error generating HTML: {e}")
+        stderr = e.stderr.decode("utf-8", errors="replace")
+        logging.error(f"Error generating HTML (exit code {e.returncode}): {stderr}")
         exit(1)
 
 
@@ -558,7 +714,7 @@ if __name__ == "__main__":
     extra_templates = (
         ["Visium_template.qmd"] if config["best_practice"] == "visium" else []
     )
-    validate_templates(config["templates_path"])
+    validate_templates(config["templates_path"], extra_templates)
 
     # Create the output directory if it doesn't exist
     config["output_path"].mkdir(parents=True, exist_ok=True)
@@ -581,15 +737,18 @@ if __name__ == "__main__":
                 for x in [
                     "QC.html",
                     "QC.md",
+                    "QC.qmd",
                     "Delivery.html",
                     "Delivery.md",
+                    "Delivery.qmd",
                     "Close.html",
                     "Close.md",
+                    "Close.qmd",
                 ]
                 if config["output_path"].joinpath(x).is_file()
             ]
             files_list += (
-                ["Visium.html", "Visium.md"]
+                ["Visium.html", "Visium.md", "Visium.qmd"]
                 if config["best_practice"] == "visium"
                 else []
             )
@@ -610,17 +769,17 @@ if __name__ == "__main__":
     logging.debug(f"    Quarto Path: '{config['quarto_path']}'")
     logging.debug(f"    Quarto Version: {quarto_version}")
     logging.debug(f"    Templates Path: '{config['templates_path'].resolve()}'")
-    logging.debug(f"    Project Name: '{config['name']}'")
-    logging.debug(f"    Project ID: {config['project']}")
-    logging.debug(f"    Flowcell ID: {config['flowcell']}")
+    logging.debug(f"    Project Name: [REDACTED]")
+    logging.debug(f"    Project ID: [REDACTED]")
+    logging.debug(f"    Flowcell ID: [REDACTED]")
     logging.debug(f"    Instrument: {config['instrument']}")
     logging.debug(f"    NGI Path: '{config['ngi_path']}'")
     if config["best_practice"]:
         logging.debug(f"    Genome Path: {config['genome_path']}")
         logging.debug(f"    Transcriptome Path: {config['transcriptome_path']}")
-    logging.debug(f"    Author: {config['author']}")
-    logging.debug(f"    Author Signature: {config['signature']}")
-    logging.debug(f"    Author Email: {config['email']}")
+    logging.debug(f"    Author: [REDACTED]")
+    logging.debug(f"    Author Signature: [REDACTED]")
+    logging.debug(f"    Author Email: [REDACTED]")
     logging.debug(f"    Output Directory: '{config['output_path']}'")
     logging.debug(f"    Output Format: {config['format']}")
     logging.debug(f"    Output Structure: {config['output_structure']}")
@@ -641,25 +800,43 @@ if __name__ == "__main__":
     for key, template in templates_dict.items():
         logging.debug(f"Generating {key} output using template: {template}")
         # Prepare the base command to run Quarto
-        cmd = f"{config['quarto_path']} render {template} --no-clean"
-        cmd += f" --output-dir {config['output_path']} --execute-dir {config['output_path']}"
+        cmd = [
+            str(config["quarto_path"]),
+            "render",
+            template,
+            "--no-clean",
+            "--output-dir",
+            str(config["output_path"]),
+            "--execute-dir",
+            str(config["output_path"]),
+        ]
         if config["format"] == "markdown":
-            cmd += " --to commonmark"
-            cmd += (
-                f" --output {config['basename']}_{key}.md"
+            outname = (
+                f"{config['basename']}_{key}.md"
                 if config["basename"] != ""
-                else f" --output {key}.md"
+                else f"{key}.md"
             )
+            cmd.extend(["--to", "commonmark", "--output", outname])
             # Generate the Markdown file and place it in the specified directory
             generate_markdown_output(config, cmd, key)
 
         elif config["format"] == "html":
-            cmd += " --to html --embed-resources --standalone --debug "
-            cmd += (
-                f"--output {config['basename']}_{key}.html"
+            outname = (
+                f"{config['basename']}_{key}.html"
                 if config["basename"] != ""
-                else f" --output {key}.html"
+                else f"{key}.html"
             )
+            html_flags = [
+                "--to",
+                "html",
+                "--embed-resources",
+                "--standalone",
+                "--output",
+                outname,
+            ]
+            if logging.getLogger().level <= logging.DEBUG:
+                html_flags.append("--debug")
+            cmd.extend(html_flags)
             # Generate the HTML file and place it in the specified directory
             generate_html_output(config, cmd)
         else:

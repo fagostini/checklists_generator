@@ -45,6 +45,7 @@ quarto render qmds/<qmd_file> --to markdown --embed-resources --standalone
 - `--author`: The full name of the author. If not provided, the script will not include the author in the output file.
 - `--email`: The email address of the author. If not provided, the script will not include the email in the output file.
 - `--ngi-path`: The path to the NGI folder on Miarka. This is used to generate the path to the project folders. If not provided, the script will leave a generic placeholder (`<ngi_path>`) in the output file.
+- `--incoming-path`: The path to the incoming data folder. If not provided, the script will leave a generic placeholder (`<incoming_path>`) in the output file.
 - `--config-path`: The path to the TACA configuration folder. This is used to generate the path to the project folders. If not provided, the script will leave a generic placeholder (`<config_path>`) in the output file.
 - `--genstat-url`: The URL for the Genomics Status page. If not provided, the script will leave a generic placeholder (`<genstat_url>`) in the output file.
 - `--charon-url`: The URL for the Charon page. If not provided, the script will leave a generic placeholder (`<charon_url>`) in the output file.
@@ -66,6 +67,7 @@ If a `config.json` file is present in the same directory as the script, it will 
 - `author [string]`
 - `email [string]`
 - `ngi_path [string]`
+- `incoming_path [string]`
 - `config_path [string]`
 - `genstat_url [string]`
 - `charon_url [string]`
@@ -75,22 +77,29 @@ If a `config.json` file is present in the same directory as the script, it will 
 - `output_structure [string]`
 - `force [bool]`
 - `log_level [string]`
+- `slide [string]`
+- `genome_path [string]`
+- `transcriptome_path [string]`
+- `instrument [string]`
+- `visium_base_path [string]`
+- `local_reports_path [string]`
+- `script_assets_path [string]`
 
-> Note: The base working path on Miarka and the URLs for Genomics Status and Charon have been replaced with generic placeholders (`<ngi_path>`, `<genstat_url>`, and `<charon_url>`) in the template files. This was done to avoid hardcoding sensitive information in the script and templates. Therefore, it is highly recommended to set these values in the local configuration file or pass them as command line arguments when running the script. The script will use the provided values to replace the placeholders in the template files before generating the final outputs.
+> Note: `config.json` is gitignored and will not be tracked. To get started, copy `config.json.example` to `config.json` and fill in the values that apply to your environment. Any keys omitted from `config.json` will fall back to their command-line argument counterparts.
 
 ### Example of `config.json` file:
 
 ```json
 {
-  "author": "John Doe",
-  "email": "john.doe@scilifelab.se",
+  "author": "Your Name",
+  "email": "your.name@scilifelab.se",
   "format": "markdown",
   "output_path": "/path/to/output/directory",
   "output_structure": "nested",
   "quarto_path": "/usr/local/bin/quarto",
   "ngi_path": "/path/to/NGI/folder",
-  "genstat_url": "https://genstat.example.com",
-  "charon_url": "https://charon.example.com",
+  "genstat_url": "https://genomics-status.scilifelab.se",
+  "charon_url": "https://charon.scilifelab.se",
   "config_path": "/path/to/conf/TACA"
 }
 ```

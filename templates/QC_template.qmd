@@ -46,13 +46,13 @@ In the table at the bottom of the page, the *QC* column refers to whether the sa
 - [ ] Log into Miarka
 
 ::: {.callout-tip title="Activate the production environment [OPTIONAL]"}
-`source /vulpes/ngi/production/latest/conf/sourceme_sthlm.sh && source activate NGI`
+`source <config_path>/sourceme_sthlm.sh && source activate NGI`
 :::
 
 - [ ] Start the data organisation by running the following command:
 
 ```bash
-cd /proj/ngi2016003/incoming/<instrument_path>
+cd <incoming_path>/<instrument_path>
 
 ngi_pipeline_start.py organize flowcell <flowcell_id> -p <project_id>
 ```
