@@ -24,6 +24,8 @@ python generate_checklists.py --output-path . --format html
 
 This will generate three checklists (i.e. QC, Delivery and Close) in HTML format in the current directory. It will also generate the corresponding `.qmd` files with the same base name, and place them in the `qmds` folder. A `.qmd` file is a Quarto document that can be edited and rendered to generate a new HTML file with the updated checklist.
 
+To save an HTML checklist as a PDF while preserving the ticked checkboxes, open the HTML file in a web browser, tick the completed checklist items, and click the "Download PDF" button in the bottom-right corner (or use the browser's print dialog, e.g. `Ctrl+P` / `Cmd+P`), then choose "Save as PDF" as the destination.
+
 To re-generate any of the checklists after having modified its `.qmd` file, run the following command:
 
 ```bash
