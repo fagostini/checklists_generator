@@ -31,7 +31,7 @@ Although possible, it is better to process one sample at the time
 
 In the next section:
 
-- [ ] Update the Document version (current version is **5**)
+- [ ] Update the Document version (current version is **6**)
 - [ ] Click on *BCL conversion and demultiplexing*
 
 Once the import is complete:
